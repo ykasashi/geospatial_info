@@ -7,12 +7,13 @@ import math
 # import random as random
 # import xgboost as xgb
 
-# import warnings
-# warnings.filterwarnings('ignore')
+import warnings
+warnings.filterwarnings('ignore')
 
 # # Going to use these 5 base models for the stacking
 from sklearn.ensemble import (RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, ExtraTreesClassifier)
 from sklearn.model_selection import KFold
+from itertools import combinations
 # from sklearn.metrics import f1_score
 
 # machine learning
@@ -60,6 +61,37 @@ def yyyymm_to_datetime(yyyymm_num):
     yyyymm_str = str(yyyymm_int)  # 数値を文字列に変換
     return datetime.strptime(yyyymm_str, "%Y%m")
 
+def create_interaction_features(df, columns=None):
+    """
+    特定のカラムを除外して相互作用カラムを作成し、最後に除外したカラムを戻す関数
+    
+    パラメータ:
+    df: pandas DataFrame
+        元のデータフレーム
+    target_column: str
+        除外する目的変数の列名（例: 'money_room'）
+    columns: list, optional
+        掛け合わせたい列のリスト。デフォルトはNoneで、数値データ型の列が自動的に選択される。
+    
+    戻り値:
+    pandas DataFrame: 元のデータフレームに新しい相互作用カラムを追加したもの
+    """
+    
+    col_lists = []
+
+    
+    # 掛け合わせる列が指定されていない場合、数値データの列を自動選択
+    if columns is None:
+        columns = df.select_dtypes(include='number').columns
+    
+    # 2つずつの組み合わせを作成
+    for col1, col2 in combinations(columns, 2):
+        new_col_name = f"{col1}_x_{col2}"
+        col_lists.append(new_col_name)
+        df[new_col_name] = df[col1] * df[col2]
+    
+    return df,col_lists
+
 # 入力
 train = pd.read_csv(PATH + "train.csv")
 test  = pd.read_csv(PATH + "test.csv")
@@ -82,6 +114,7 @@ full_data = [train, test]
 # ・land_chisei : 地勢
 # ・money_rimawari_now : 現行利回り
 cols = ['unit_area', 'year_built_num', 'room_count', 'madori_number_all', 'flg_new', 'walk_distance1', 'money_kyoueki', 'angle_4.0','angle_5.0', 'angle_6.0', 'convenience_distance', 'super_distance', 'hospital_distance', 'room_kaisuu', 'bs_1.0', 'bs_2.0', 'bs_3.0', 'land_chisei', 'money_rimawari_now', 'money_room']
+kake_cols = ['unit_area', 'year_built_num', 'room_count', 'madori_number_all', 'flg_new', 'walk_distance1', 'money_kyoueki', 'angle_4.0','angle_5.0', 'angle_6.0', 'convenience_distance', 'super_distance', 'hospital_distance', 'room_kaisuu', 'bs_1.0', 'bs_2.0', 'bs_3.0', 'land_chisei', 'money_rimawari_now']
 
 # 前処理
 # 築経過月数の算出
@@ -98,6 +131,11 @@ test = pd.get_dummies(test, columns=['snapshot_window_angle'], prefix='angle')
 # 建物構造をワンホットエンコーディングで8変数追加
 train = pd.get_dummies(train, columns=['building_structure'], prefix='bs')
 test = pd.get_dummies(test, columns=['building_structure'], prefix='bs')
+
+# 掛け合わせによる新しい特徴量を生成
+train,train_cols = create_interaction_features(train[cols], kake_cols)
+test,test_cols = create_interaction_features(test, kake_cols)
+cols.extend(train_cols)
 
 # 相関行列を計算
 correlation_matrix = train[cols].corr()
