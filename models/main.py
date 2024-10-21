@@ -22,6 +22,8 @@ from sklearn.model_selection import train_test_split
 # 評価関数
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+PATH = 'C:/Users/y.kasashima/Desktop/signate/20241016/'
+
 def accurate(test_y, pred_y):
     """
     モデルの評価指標を計算して表示する関数
@@ -59,8 +61,8 @@ def yyyymm_to_datetime(yyyymm_num):
     return datetime.strptime(yyyymm_str, "%Y%m")
 
 # 入力
-train = pd.read_csv("../data/raw/train.csv")
-test  = pd.read_csv("../data/raw/test.csv")
+train = pd.read_csv(PATH + "train.csv")
+test  = pd.read_csv(PATH + "test.csv")
 full_data = [train, test]
 
 # 追加済み変数
@@ -77,7 +79,9 @@ full_data = [train, test]
 # ・hospital_distance : 総合病院からの距離
 # ・room_kaisuu : 部屋階数
 # ・building_structure : 建物構造
-cols = ['unit_area', 'year_built_num', 'room_count', 'madori_number_all', 'flg_new', 'walk_distance1', 'money_kyoueki', 'angle_4.0','angle_5.0', 'angle_6.0', 'convenience_distance', 'super_distance', 'hospital_distance', 'room_kaisuu', 'bs_1.0', 'bs_2.0', 'bs_3.0','money_room']
+# ・land_chisei : 地勢
+# ・money_rimawari_now : 現行利回り
+cols = ['unit_area', 'year_built_num', 'room_count', 'madori_number_all', 'flg_new', 'walk_distance1', 'money_kyoueki', 'angle_4.0','angle_5.0', 'angle_6.0', 'convenience_distance', 'super_distance', 'hospital_distance', 'room_kaisuu', 'bs_1.0', 'bs_2.0', 'bs_3.0', 'land_chisei', 'money_rimawari_now', 'money_room']
 
 # 前処理
 # 築経過月数の算出
