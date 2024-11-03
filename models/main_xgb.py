@@ -11,19 +11,53 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # # Going to use these 5 base models for the stacking
-from sklearn.ensemble import (RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, ExtraTreesClassifier)
 from sklearn.model_selection import KFold
 from itertools import combinations
 # from sklearn.metrics import f1_score
 
 # machine learning
-from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
 from sklearn.model_selection import train_test_split
 
 # 評価関数
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 PATH = 'C:/Users/y.kasashima/Desktop/signate/20241016/'
+
+def reduce_mem_usage(df):
+    start_mem = df.memory_usage().sum() / 1024**2
+    print('Memory usage of dataframe is {:.2f} MB'.format(start_mem))
+    
+    for col in df.columns:
+        col_type = df[col].dtype
+        
+        if col_type != object:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)  
+            else:
+                if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
+                    df[col] = df[col].astype(np.float16)
+                elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)
+        else:
+            df[col] = df[col].astype('category')
+
+    end_mem = df.memory_usage().sum() / 1024**2
+    print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
+    print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+    
+    return df
 
 def accurate(test_y, pred_y):
     """
@@ -98,6 +132,10 @@ def create_interaction_features(df, columns=None):
 # 入力
 train = pd.read_csv(PATH + "train.csv")
 test  = pd.read_csv(PATH + "test.csv")
+
+# train = reduce_mem_usage(train)
+# test = reduce_mem_usage(test)
+
 full_data = [train, test]
 
 # 追加済み変数
@@ -155,78 +193,53 @@ Y_train = train["money_room"]
 X_test  = test[selected_features].copy()
 
 
-# 交差検証法
-label = train["money_room"]
-cv_train_x, cv_test_x, cv_train_y, cv_test_y = train_test_split(X_train, label, train_size = 0.8 ,test_size = 0.2, shuffle = True, random_state = 0)
-
 SEED = 0 # for reproducibility
 ntrain = X_train.shape[0]
 ntest = X_test.shape[0]
 NFOLDS = 5 # set folds for out-of-fold prediction
 kf = KFold(n_splits= NFOLDS, shuffle=True, random_state=SEED)
 
-# Class to extend the Sklearn classifier
-class SklearnHelper(object):
-    def __init__(self, clf, seed=0, params=None):
-        params['random_state'] = seed
-        self.clf = clf(**params)
-
-    def train(self, x_train, y_train):
-        self.clf.fit(x_train, y_train)
-
-    def predict(self, x):
-        return self.clf.predict(x)
-    
-    def fit(self,x,y):
-        return self.clf.fit(x,y)
-    
-    def feature_importances(self,x,y):
-        print(self.clf.fit(x,y).feature_importances_)
-    
-# Class to extend XGboost classifer
-
-def get_oof(clf, x_train, y_train, x_test):
-    oof_train = np.zeros((ntrain,))
-    oof_test = np.zeros((ntest,))
-    oof_test_skf = np.empty((NFOLDS, ntest))
-
-    for i, (train_index, test_index) in enumerate(kf.split(train)):
-        x_tr = x_train[train_index]
-        y_tr = y_train[train_index]
-        x_te = x_train[test_index]
-
-        clf.train(x_tr, y_tr)
-
-        oof_train[test_index] = clf.predict(x_te)
-        oof_test_skf[i, :] = clf.predict(x_test)
-
-    oof_test[:] = oof_test_skf.mean(axis=0)
-    return oof_train.reshape(-1, 1), oof_test.reshape(-1, 1)
-
 # Put in our parameters for said classifiers
 # Random Forest parameters
-rf_params = {
-    #'n_jobs': -1,
-    'n_estimators': 3,
-     #'warm_start': True, 
-     #'max_features': 0.2,
-    'max_depth': 3,
-    'min_samples_leaf': 2,
-    'max_features' : 'sqrt',
-    'verbose': 0
-}
-
-# Create 5 objects that represent our 4 models
-rf = SklearnHelper(clf=RandomForestClassifier, seed=SEED, params=rf_params)
+param = {
+    # 二値分類問題
+    'objective': 'binary:logistic',  
+} 
 
 # Create Numpy arrays of train, test and target ( Survived) dataframes to feed into our models
 y_train = Y_train.values
 x_train = X_train.values # Creates an array of the train data
 x_test = X_test.values # Creats an array of the test data
 
+# 交差検証法
+label = train["money_room"]
+cv_train_x, cv_test_x, cv_train_y, cv_test_y = train_test_split(X_train, label, train_size = 0.8 ,test_size = 0.2, shuffle = True, random_state = 0)
+
 # Create our OOF train and test predictions. These base results will be used as new features
-print("Random Forest is Start")
-rf_oof_train, rf_oof_test = get_oof(rf, x_train, y_train, x_test) # Random Forest
-print(accurate(y_train,rf_oof_train))
-print("Random Forest is complete")
+print("XGBoost is Start")
+
+reg = xgb.XGBRegressor(#目的関数の指定 初期値も二乗誤差です
+                       objective='reg:squarederror',
+                       #学習のラウンド数 early_stoppingを利用するので多めに指定
+                       n_estimators=50000,
+                       #boosterに何を用いるか 初期値もgbtreeです
+                       booster='gbtree',
+                       #学習率
+                       learning_rate=0.01,
+                       #木の最大深さ
+                       max_depth=6,
+                       #シード値
+                       random_state=2525)
+
+#eval_setには検証用データを設定する
+reg.fit(cv_train_x, cv_train_y,eval_set=[(cv_train_x, cv_train_y),(cv_test_x, cv_test_y)])
+
+# # データフレームの行を直接指定する
+# good_data= cv_test_x.iloc[:1, :]
+
+#予測実行
+predY = reg.predict(cv_test_x)
+
+print(accurate(cv_test_y,predY))
+print("XGBoost is complete")
 print("Training is complete")
